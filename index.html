@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes Path Visualization</title>
+    <style>
+        /* Спокойная, благородная цветовая палитра (Slate/K8s Blue) */
+        :root {
+            --bg-main: #f8fafc;
+            --bg-card: #ffffff;
+            --border-color: #e2e8f0;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --k8s-blue: #326ce5;
+            --k8s-blue-light: rgba(50, 110, 229, 0.1);
+            --node-bg: #f1f5f9;
+            --req-color: #3b82f6;   /* Спокойный синий для запросов */
+            --res-color: #10b981;   /* Приятный зеленый для ответов */
+            --accent-glow: rgba(50, 110, 229, 0.15);
+        }
+
+        [data-theme="dark"] {
+            --bg-main: #0f172a;
+            --bg-card: #1e293b;
+            --border-color: #334155;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --k8s-blue: #326ce5;
+            --k8s-blue-light: rgba(50, 110, 229, 0.2);
+            --node-bg: #334155;
+            --req-color: #60a5fa;
+            --res-color: #34d399;
+            --accent-glow: rgba(50, 110, 229, 0.3);
+        }
+
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            transition: background-color 0.3s, color 0.3s;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Навигационная панель */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 2rem;
+            background-color: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .logo-area {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .k8s-logo {
+            width: 36px;
+            height: 36px;
+            fill: var(--k8s-blue);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+        }
+
+        .top-buttons {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        button {
+            background-color: var(--bg-card);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            border-color: var(--k8s-blue);
+            background-color: var(--k8s-blue-light);
+        }
+
+        /* Контейнер приложения */
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 1.5rem;
+            box-sizing: border-box;
+            gap: 1.5rem;
+        }
+
+        /* Панель управления */
+        .controls-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.25rem 2rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .control-label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .control-label span {
+            color: var(--k8s-blue);
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            background: var(--border-color);
+            border-radius: 3px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--k8s-blue);
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        /* Область визуализации */
+        .workspace {
+            position: relative;
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            flex: 1;
+            min-height: 550px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 3rem 2rem;
+            box-sizing: border-box;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.02);
+        }
+
+        /* Слой холста для отрисовки путей и частиц */
+        #renderCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Сетевые компоненты (DOM) */
+        .layer {
+            display: flex;
+            justify-content: center;
+            width: 100%;
+            z-index: 2;
+        }
+
+        .component-box {
+            background-color: var(--bg-card);
+            border: 2px solid var(--border-color);
+            padding: 0.75rem 2rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-align: center;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+            transition: border-color 0.3s, background-color 0.3s;
+        }
+
+        .component-box.active-node {
+            border-color: var(--k8s-blue);
+            box-shadow: 0 0 12px var(--accent-glow);
+        }
+
+        .internet-box {
+            border-color: var(--text-muted);
+        }
+
+        .lb-box {
+            border-color: var(--k8s-blue);
+            background-color: var(--k8s-blue-light);
+        }
+
+        .nodes-grid {
+            display: flex;
+            gap: 1.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            width: 100%;
+        }
+
+        .k8s-node {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            background-color: var(--node-bg);
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+            border-radius: 10px;
+            min-width: 120px;
+            align-items: center;
+        }
+
+        .pod-box {
+            background-color: var(--bg-card);
+            border: 1px solid var(--k8s-blue);
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: var(--k8s-blue);
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo-area">
+            <svg class="k8s-logo" viewBox="0 0 100 100">
+                <path d="M50 2L91.5 22V78L50 98L8.5 78V22L50 2Z"/>
+                <circle cx="50" cy="50" r="32" fill="none" stroke="white" stroke-width="6"/>
+                <circle cx="50" cy="50" r="8" fill="white"/>
+                <path d="M50 18L50 10 M82 50L90 50 M50 82L50 90 M18 50L10 50 M72.6 27.4L78.3 21.7 M72.6 72.6L78.3 78.3 M27.4 72.6L21.7 78.3 M27.4 27.4L21.7 21.7" stroke="white" stroke-width="5" stroke-linecap="round"/>
+            </svg>
+            <h1 id="txt-app-title">Kubernetes Path Visualizer</h1>
+        </div>
+        <div class="top-buttons">
+            <button id="btn-theme" onclick="toggleTheme()">Theme</button>
+            <button id="btn-lang" onclick="toggleLang()">RU</button>
+        </div>
+    </header>
+
+    <div class="app-container">
+        <div class="controls-card">
+            <div class="control-group">
+                <div class="control-label">
+                    <span id="txt-label-nodes">Worker Nodes</span>
+                    <span id="val-nodes">3</span>
+                </div>
+                <input type="range" id="slider-nodes" min="1" max="6" value="3" oninput="initCluster()">
+            </div>
+            <div class="control-group">
+                <div class="control-label">
+                    <span id="txt-label-traffic">Traffic Rate</span>
+                    <span id="val-traffic">Medium</span>
+                </div>
+                <input type="range" id="slider-traffic" min="1" max="5" value="3" oninput="updateTraffic()">
+            </div>
+        </div>
+
+        <div class="workspace" id="workspace">
+            <canvas id="renderCanvas"></canvas>
+
+            <div class="layer">
+                <div class="component-box internet-box" id="node-internet">Internet / Client</div>
+            </div>
+
+            <div class="layer">
+                <div class="component-box lb-box" id="node-lb">Load Balancer (Ingress)</div>
+            </div>
+
+            <div class="layer">
+                <div class="nodes-grid" id="nodes-container">
+                    </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Словари локализации ---
+        const dictionary = {
+            en: {
+                title: "Kubernetes Path Visualizer",
+                nodes: "Worker Nodes",
+                traffic: "Traffic Rate",
+                trafficLevels: ["Very Low", "Low", "Medium", "High", "Critical"],
+                internet: "Internet / Client",
+                lb: "Load Balancer (Ingress)",
+                nodeName: "Worker Node",
+                theme: "Toggle Theme"
+            },
+            ru: {
+                title: "Визуализатор путей Kubernetes",
+                nodes: "Рабочие узлы (Nodes)",
+                traffic: "Интенсивность трафика",
+                trafficLevels: ["Очень низкая", "Низкая", "Средняя", "Высокая", "Критическая"],
+                internet: "Интернет / Клиент",
+                lb: "Балансировщик нагрузки",
+                nodeName: "Рабочий узел",
+                theme: "Сменить тему"
+            }
+        };
+
+        let currentLang = 'ru';
+        let currentTheme = 'dark';
+        
+        const canvas = document.getElementById('renderCanvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+        let spawnInterval = null;
+
+        // --- Инициализация и подгонка холста ---
+        function resizeCanvas() {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width * window.devicePixelRatio;
+            canvas.height = rect.height * window.devicePixelRatio;
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            canvas.style.width = '100%';
+            canvas.style.height = '100%';
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        function toggleTheme() {
+            currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', currentTheme);
+            updateUIStrings();
+        }
+
+        function toggleLang() {
+            currentLang = currentLang === 'en' ? 'ru' : 'en';
+            document.getElementById('btn-lang').innerText = currentLang === 'en' ? 'RU' : 'EN';
+            updateUIStrings();
+            initCluster();
+        }
+
+        function updateUIStrings() {
+            const lang = dictionary[currentLang];
+            document.getElementById('txt-app-title').innerText = lang.title;
+            document.getElementById('txt-label-nodes').innerText = lang.nodes;
+            document.getElementById('txt-label-traffic').innerText = lang.traffic;
+            document.getElementById('node-internet').innerText = lang.internet;
+            document.getElementById('node-lb').innerText = lang.lb;
+            document.getElementById('btn-theme').innerText = lang.theme;
+            updateTrafficLabel();
+        }
+
+        function updateTrafficLabel() {
+            const val = document.getElementById('slider-traffic').value;
+            document.getElementById('val-traffic').innerText = dictionary[currentLang].trafficLevels[val - 1];
+        }
+
+        // --- Генерация инфраструктуры кластера ---
+        function initCluster() {
+            const nodeCount = document.getElementById('slider-nodes').value;
+            document.getElementById('val-nodes').innerText = nodeCount;
+            const container = document.getElementById('nodes-container');
+            container.innerHTML = '';
+
+            const lang = dictionary[currentLang];
+
+            for (let i = 1; i <= nodeCount; i++) {
+                const nodeDiv = document.createElement('div');
+                nodeDiv.className = 'k8s-node';
+                nodeDiv.id = `k8s-node-${i}`;
+                
+                const nodeTitle = document.createElement('div');
+                nodeTitle.style.fontWeight = '600';
+                nodeTitle.style.fontSize = '0.85rem';
+                nodeTitle.innerText = `${lang.nodeName} ${i}`;
+
+                const pod = document.createElement('div');
+                pod.className = 'pod-box';
+                pod.id = `pod-target-${i}`;
+                pod.innerText = `Pod-${i}`;
+
+                nodeDiv.appendChild(nodeTitle);
+                nodeDiv.appendChild(pod);
+                container.appendChild(nodeDiv);
+            }
+            setTimeout(resizeCanvas, 50); // Даем DOM перерисоваться перед расчетом путей
+        }
+
+        // --- Логика движения трафика (Частицы на Canvas) ---
+        function getCoords(elementId) {
+            const el = document.getElementById(elementId);
+            if (!el) return { x: 0, y: 0 };
+            const elRect = el.getBoundingClientRect();
+            const canvasRect = canvas.getBoundingClientRect();
+            return {
+                x: elRect.left - canvasRect.left + elRect.width / 2,
+                y: elRect.top - canvasRect.top + elRect.height / 2
+            };
+        }
+
+        class Packet {
+            constructor(targetNodeIndex) {
+                this.targetIndex = targetNodeIndex;
+                this.progress = 0;
+                this.phase = 'INTERNET_TO_LB'; // Пять фаз: TO_LB -> TO_NODE -> PROCESSING -> RETURNING_TO_LB -> RETURNING_HOME
+                this.speed = 0.025;
+                this.coords = { x: 0, y: 0 };
+                this.holdFrames = 15; // Время задержки (обработки) на поде
+            }
+
+            update() {
+                const pInternet = getCoords('node-internet');
+                const pLB = getCoords('node-lb');
+                const pPod = getCoords(`pod-target-${this.targetIndex}`);
+
+                // Если целевой узел удалили во время движения, перенаправляем на первый доступный
+                if (pPod.x === 0 && pPod.y === 0) {
+                    this.targetIndex = 1;
+                    return;
+                }
+
+                if (this.phase === 'INTERNET_TO_LB') {
+                    this.progress += this.speed;
+                    this.coords.x = pInternet.x + (pLB.x - pInternet.x) * this.progress;
+                    this.coords.y = pInternet.y + (pLB.y - pInternet.y) * this.progress;
+                    if (this.progress >= 1) {
+                        this.phase = 'LB_TO_NODE';
+                        this.progress = 0;
+                    }
+                } 
+                else if (this.phase === 'LB_TO_NODE') {
+                    this.progress += this.speed;
+                    this.coords.x = pLB.x + (pPod.x - pLB.x) * this.progress;
+                    this.coords.y = pLB.y + (pPod.y - pLB.y) * this.progress;
+                    if (this.progress >= 1) {
+                        this.phase = 'PROCESSING';
+                        this.progress = 0;
+                    }
+                }
+                else if (this.phase === 'PROCESSING') {
+                    this.holdFrames--;
+                    this.coords.x = pPod.x;
+                    this.coords.y = pPod.y;
+                    if (this.holdFrames <= 0) {
+                        this.phase = 'RETURNING_TO_LB';
+                    }
+                }
+                else if (this.phase === 'RETURNING_TO_LB') {
+                    this.progress += this.speed;
+                    this.coords.x = pPod.x + (pLB.x - pPod.x) * this.progress;
+                    this.coords.y = pLB.y + (pLB.y - pPod.y) * this.progress;
+                    if (this.progress >= 1) {
+                        this.phase = 'RETURNING_HOME';
+                        this.progress = 0;
+                    }
+                }
+                else if (this.phase === 'RETURNING_HOME') {
+                    this.progress += this.speed;
+                    this.coords.x = pLB.x + (pInternet.x - pLB.x) * this.progress;
+                    this.coords.y = pLB.y + (pInternet.y - pLB.y) * this.progress;
+                    if (this.progress >= 1) {
+                        return false; // Пакет завершил жизненный цикл
+                    }
+                }
+                return true;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.coords.x, this.coords.y, 5, 0, Math.PI * 2);
+                
+                // Изменяем цвет в зависимости от направления (запрос / ответ)
+                if (this.phase === 'INTERNET_TO_LB' || this.phase === 'LB_TO_NODE') {
+                    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--req-color');
+                } else {
+                    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--res-color');
+                }
+                
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = ctx.fillStyle;
+                ctx.fill();
+                ctx.shadowBlur = 0; // Сброс тени
+            }
+        }
+
+        function createRequest() {
+            const nodeCount = parseInt(document.getElementById('slider-nodes').value);
+            if (nodeCount < 1) return;
+            const target = Math.floor(Math.random() * nodeCount) + 1;
+            particles.push(new Packet(target));
+        }
+
+        function updateTraffic() {
+            updateTrafficLabel();
+            if (spawnInterval) clearInterval(spawnInterval);
+            
+            const sliderVal = document.getElementById('slider-traffic').value;
+            // Рассчитываем задержку спавна (от 1500мс на минимальной до 150мс на критической нагрузке)
+            const delays = [1500, 900, 500, 250, 120];
+            const currentDelay = delays[sliderVal - 1];
+
+            spawnInterval = setInterval(createRequest, currentDelay);
+        }
+
+        // --- Главный цикл анимации ---
+        function renderLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Отрисовка фоновых статических направляющих линий путей
+            drawStaticPaths();
+
+            // Обновление и отрисовка пакетов данных
+            particles = particles.filter(p => {
+                const isActive = p.update();
+                if (isActive) p.draw();
+                return isActive;
+            });
+
+            requestAnimationFrame(renderLoop);
+        }
+
+        function drawStaticPaths() {
+            const pInternet = getCoords('node-internet');
+            const pLB = getCoords('node-lb');
+            const nodeCount = document.getElementById('slider-nodes').value;
+            
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--border-color');
+            ctx.setLineDash([4, 4]);
+
+            // Линия от Интернета к LB
+            ctx.beginPath();
+            ctx.moveTo(pInternet.x, pInternet.y);
+            ctx.lineTo(pLB.x, pLB.y);
+            ctx.stroke();
+
+            // Линии от LB к каждому Поду на Нодах
+            for (let i = 1; i <= nodeCount; i++) {
+                const pPod = getCoords(`pod-target-${i}`);
+                if (pPod.x !== 0 && pPod.y !== 0) {
+                    ctx.beginPath();
+                    ctx.moveTo(pLB.x, pLB.y);
+                    ctx.lineTo(pPod.x, pPod.y);
+                    ctx.stroke();
+                }
+            }
+            ctx.setLineDash([]); // Сброс пунктира
+        }
+
+        // --- Скрипт запуска ---
+        window.onload = () => {
+            updateUIStrings();
+            initCluster();
+            updateTraffic();
+            setTimeout(() => {
+                resizeCanvas();
+                requestAnimationFrame(renderLoop);
+            }, 100);
+        };
+    </script>
+</body>
+</html>
