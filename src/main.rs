@@ -8,23 +8,23 @@ fn main() {
     let config_path = match find_nginx_config() {
         Some(path) => path,
         None => {
-            eprintln!("❌ Ошибка: Не удалось найти nginx.conf ни в одной из стандартных директорий.");
-            println!("Вы можете указать путь вручную: sudo ./nginx-fix /путь/к/nginx.conf");
+            eprintln!("❌ Error: Failed to find nginx.conf in any of the standard directories.");
+            println!("You can specify the path manually: sudo ./nginx-fix /path/to/nginx.conf");
             return;
         }
     };
 
-    println!("📖 Используем конфигурационный файл: {:?}", config_path);
+    println!("📖 Using configuration file: {:?}", config_path);
 
     let port = match extract_port_from_nginx(&config_path) {
         Some(p) => p,
         None => {
-            eprintln!("❌ Не удалось найти или распарсить директиву 'listen' в файле {:?}", config_path);
+            eprintln!("❌ Failed to find or parse the 'listen' directive in file {:?}", config_path);
             return;
         }
     };
 
-    println!("🔍 Nginx должен слушать порт: [:{}]", port);
+    println!("🔍 Nginx should be listening on port: [:{}]", port);
 
     match listeners::get_all() {
         Ok(all_listeners) => {
@@ -33,7 +33,7 @@ fn main() {
                 .any(|l| l.socket.port() == port && l.process.name == "nginx");
 
             if is_nginx_already_running {
-                println!("✅ Всё отлично! Порт {} уже занят самим Nginx. Сервер работает штатно.", port);
+                println!("✅ Everything is fine! Port {} is already occupied by Nginx itself. The server is operating normally.", port);
                 return;
             }
 
@@ -43,17 +43,17 @@ fn main() {
                 .collect();
 
             if conflicts.is_empty() {
-                println!("✅ Порт {} абсолютно свободен и готов к запуску Nginx.", port);
+                println!("✅ Port {} is completely free and ready for Nginx to start.", port);
                 return;
             }
 
-            // 4. Интерактивная ликвидация
-            println!("\n⚠️ КОНФЛИКТ! Порт {} занят сторонними процессами:", port);
+            // 4. Interactive liquidation
+            println!("\n⚠️ CONFLICT! Port {} is occupied by other processes:", port);
             for l in &conflicts {
-                println!("  -> PID: {:<6} Процесс: {}", l.process.pid, l.process.name);
+                println!("  -> PID: {:<6} Process: {}", l.process.pid, l.process.name);
             }
 
-            print!("\nЖелаете завершить (kill -9) эти конфликтующие процессы? [y/N]: ");
+            print!("\nDo you want to terminate (kill -9) these conflicting processes? [y/N]: ");
             io::stdout().flush().unwrap();
 
             let mut answer = String::new();
@@ -62,22 +62,22 @@ fn main() {
 
             if answer == "y" || answer == "yes" {
                 for l in conflicts {
-                    println!("💥 Уничтожаем {} (PID: {})...", l.process.name, l.process.pid);
+                    println!("💥 Killing {} (PID: {})...", l.process.name, l.process.pid);
                     let status = Command::new("kill")
                         .arg("-9")
                         .arg(l.process.pid.to_string())
                         .status();
 
                     match status {
-                        Ok(s) if s.success() => println!("💀 Успешно ликвидирован."),
-                        _ => eprintln!("❌ Не удалось убить процесс. Нужен sudo!"),
+                        Ok(s) if s.success() => println!("💀 Successfully terminated."),
+                        _ => eprintln!("❌ Failed to kill the process. Sudo privileges might be required!"),
                     }
                 }
             } else {
-                println!("Операция отменена.");
+                println!("Operation cancelled.");
             }
         }
-        Err(err) => eprintln!("❌ Ошибка сканирования портов: {}", err),
+        Err(err) => eprintln!("❌ Port scanning error: {}", err),
     }
 }
 
@@ -88,16 +88,16 @@ fn find_nginx_config() -> Option<PathBuf> {
         if custom_path.exists() && custom_path.is_file() {
             return Some(custom_path);
         } else {
-            println!("⚠️ Указанный в аргументах файл {:?} не существует. Ищем автоматически...", custom_path);
+            println!("⚠️ The file specified in arguments {:?} does not exist. Searching automatically...", custom_path);
         }
     }
 
     let standard_paths = [
-        "nginx.conf",// Текущая папка сборки/запуска
-        "/etc/nginx/nginx.conf",// Стандарт в Ubuntu, Debian, Arch, CentOS
-        "/usr/local/nginx/conf/nginx.conf",// Стандарт при сборке из исходников
-        "/usr/local/etc/nginx/nginx.conf",// Стандарт на FreeBSD и старых macOS
-        "/opt/homebrew/etc/nginx/nginx.conf",// Стандарт для macOS Homebrew (M1/M2/M3)
+        "nginx.conf",                       // Current build/run folder
+        "/etc/nginx/nginx.conf",             // Standard on Ubuntu, Debian, Arch, CentOS
+        "/usr/local/nginx/conf/nginx.conf",  // Standard when built from source
+        "/usr/local/etc/nginx/nginx.conf",  // Standard on FreeBSD and older macOS
+        "/opt/homebrew/etc/nginx/nginx.conf", // Standard for macOS Homebrew (M1/M2/M3)
     ];
 
     for path in &standard_paths {
